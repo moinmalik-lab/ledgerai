@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LedgerAI — Bank Statement Processor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;1,9..144,300&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap');
+:root{
+  --bg:#0b0f1a;--bg2:#111827;--bg3:#1a2236;
+  --b:rgba(255,255,255,0.06);--b2:rgba(255,255,255,0.11);
+  --t:#e2e8f4;--t2:#8895b0;--t3:#445068;
+  --g:#4ade80;--g2:rgba(74,222,128,0.1);--g3:rgba(74,222,128,0.2);
+  --r:#f87171;--r2:rgba(248,113,113,0.1);
+  --bl:#60a5fa;--bl2:rgba(96,165,250,0.1);--bl3:rgba(96,165,250,0.2);
+  --am:#fbbf24;--am2:rgba(251,191,36,0.1);
+  --pu:#c084fc;--pu2:rgba(192,132,252,0.1);
+  --google:#4285f4;
+  --mono:'IBM Plex Mono',monospace;
+  --serif:'Fraunces',Georgia,serif;
+  --sans:'DM Sans',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--t);font-family:var(--sans);font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+header{background:var(--bg2);border-bottom:1px solid var(--b);padding:0 20px;height:50px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.logo{font-family:var(--serif);font-size:19px;display:flex;align-items:center;gap:10px;}
+.lm{width:26px;height:26px;border-radius:5px;display:grid;place-items:center;font-size:14px;background:linear-gradient(135deg,#4285f4,#34a853);}
+.lv{font-family:var(--mono);font-size:8px;color:var(--t3);letter-spacing:.1em;padding:2px 5px;border:1px solid var(--b2);border-radius:3px;}
+.lbadge{background:var(--g2);border:1px solid var(--g3);color:var(--g);font-family:var(--mono);font-size:8px;padding:2px 7px;border-radius:3px;}
+.htabs{display:flex;gap:2px;}
+.htab{padding:5px 13px;font-size:12px;color:var(--t2);cursor:pointer;border-radius:5px;border:none;background:none;font-family:var(--sans);transition:all .15s;}
+.htab:hover{color:var(--t);background:var(--bg3);}
+.htab.on{color:var(--t);background:var(--bg3);}
+.server-status{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;padding:3px 9px;border-radius:4px;border:1px solid var(--b2);}
+.ss-dot{width:6px;height:6px;border-radius:50%;background:var(--am);}
+.ss-dot.ok{background:var(--g);}
+.ss-dot.err{background:var(--r);}
+
+.app{display:flex;flex:1;overflow:hidden;}
+.panel{display:none;flex:1;overflow:hidden;flex-direction:column;}
+.panel.on{display:flex;}
+
+/* SIDEBAR */
+.sidebar{width:272px;min-width:272px;background:var(--bg2);border-right:1px solid var(--b);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0;}
+.sbs{padding:14px 16px;border-bottom:1px solid var(--b);}
+.sbl{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:10px;}
+.upz{border:1.5px dashed var(--b2);border-radius:8px;padding:18px 12px;text-align:center;cursor:pointer;transition:all .2s;}
+.upz:hover,.upz.drag{border-color:var(--google);background:rgba(66,133,244,.08);}
+.upz .uico{font-size:26px;margin-bottom:6px;}
+.upz p{font-size:11px;color:var(--t2);line-height:1.6;}
+.upz p strong{color:var(--t);}
+#pdfInput{display:none;}
+.bchips{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;justify-content:center;}
+.bchip{font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;background:var(--bg3);color:var(--t3);border:1px solid var(--b);}
+.prog-wrap{margin-top:10px;display:none;}
+.prog-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,#4285f4,#34a853);border-radius:2px;width:0%;transition:width .3s;}
+.prog-lbl{font-family:var(--mono);font-size:9px;color:var(--t2);margin-top:5px;text-align:center;}
+.pips{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;}
+.pip{width:22px;height:22px;border-radius:4px;border:1px solid var(--b2);background:var(--bg3);display:grid;place-items:center;font-family:var(--mono);font-size:8px;color:var(--t3);transition:all .3s;}
+.pip.go{border-color:var(--am);color:var(--am);background:var(--am2);animation:pu .8s infinite;}
+.pip.ok{border-color:var(--g);color:var(--g);background:var(--g2);}
+.pip.er{border-color:var(--r);color:var(--r);background:var(--r2);}
+@keyframes pu{0%,100%{opacity:1}50%{opacity:.4}}
+.fpill{display:none;background:var(--g2);border:1px solid var(--g3);border-radius:6px;padding:10px 12px;}
+.fpill .fn{font-family:var(--mono);color:var(--g);font-size:10px;word-break:break-all;}
+.fpill .fm{color:var(--t3);font-size:10px;margin-top:2px;}
+.fpill .chg{font-size:10px;color:var(--t3);cursor:pointer;text-decoration:underline;margin-top:4px;display:inline-block;}
+.sum-card{background:var(--bg3);border:1px solid var(--b);border-radius:8px;padding:11px 13px;margin-bottom:6px;}
+.sum-card .sct{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);margin-bottom:4px;}
+.sum-card .sca{font-family:var(--mono);font-size:19px;font-weight:600;}
+.sum-card .scc{font-size:10px;color:var(--t3);margin-top:1px;}
+.sum-card.dep .sca{color:var(--g);}
+.sum-card.dbt .sca{color:var(--r);}
+.sum-card.chk .sca{color:var(--bl);}
+.bal-grid{display:grid;gap:3px;}
+.bal-row{display:flex;justify-content:space-between;font-size:11px;padding:4px 0;border-bottom:1px solid var(--b);}
+.bal-row:last-child{border-bottom:none;font-weight:500;}
+.bal-l{color:var(--t3);}
+.bal-v{font-family:var(--mono);}
+.exp-btns{display:flex;flex-direction:column;gap:5px;}
+.exp-btn{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:6px;border:1px solid var(--b);background:var(--bg3);color:var(--t);font-size:11.5px;font-family:var(--sans);cursor:pointer;transition:all .15s;}
+.exp-btn:hover:not(:disabled){border-color:var(--g);color:var(--g);}
+.exp-btn:disabled{opacity:.25;cursor:not-allowed;}
+.ebadge{font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;margin-left:auto;}
+.eb-g{background:var(--g2);color:var(--g);}
+.eb-b{background:var(--bl2);color:var(--bl);}
+.eb-a{background:var(--am2);color:var(--am);}
+
+/* CHAT */
+.chat-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.chat-area{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:13px;}
+.msg{display:flex;gap:9px;align-items:flex-start;}
+.msg.u{flex-direction:row-reverse;}
+.av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-family:var(--mono);font-weight:600;flex-shrink:0;}
+.av.bot{background:linear-gradient(135deg,#4285f4,#34a853);color:#fff;}
+.av.u{background:var(--bg3);color:var(--t2);border:1px solid var(--b2);}
+.bubble{background:var(--bg2);border:1px solid var(--b);border-radius:10px 10px 10px 2px;padding:12px 16px;font-size:13px;line-height:1.65;max-width:740px;}
+.msg.u .bubble{background:var(--bg3);border-radius:10px 10px 2px 10px;border-color:var(--b2);}
+.txw{margin-top:9px;border:1px solid var(--b);border-radius:6px;overflow:auto;max-height:420px;}
+.txt{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:10.5px;}
+.txt th{background:var(--bg3);padding:6px 10px;text-align:left;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);border-bottom:1px solid var(--b);white-space:nowrap;position:sticky;top:0;z-index:1;}
+.txt td{padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.03);white-space:nowrap;vertical-align:middle;}
+.txt tr:last-child td{border-bottom:none;}
+.txt tr:hover td{background:rgba(255,255,255,.02);}
+.tag{display:inline-flex;align-items:center;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;}
+.tag.dep{background:var(--g2);color:var(--g);border:1px solid var(--g3);}
+.tag.dbt{background:var(--r2);color:var(--r);border:1px solid rgba(248,113,113,.2);}
+.tag.chk{background:var(--bl2);color:var(--bl);border:1px solid var(--bl3);}
+.amc{color:var(--g);} .amd{color:var(--r);}
+.acct{display:inline-block;background:var(--bl2);color:var(--bl);border:1px solid var(--bl3);padding:1px 6px;border-radius:3px;font-size:9.5px;max-width:160px;overflow:hidden;text-overflow:ellipsis;}
+.unc{color:var(--t3);font-style:italic;font-size:10px;}
+.typ{display:flex;gap:4px;align-items:center;padding:2px 0;}
+.typ span{width:5px;height:5px;border-radius:50%;background:var(--t3);animation:bb 1.2s infinite;}
+.typ span:nth-child(2){animation-delay:.2s;} .typ span:nth-child(3){animation-delay:.4s;}
+@keyframes bb{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}
+.srow{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0;}
+.sc{padding:3px 8px;border-radius:4px;font-family:var(--mono);font-size:9.5px;font-weight:600;}
+.sc-g{background:var(--g2);color:var(--g);} .sc-r{background:var(--r2);color:var(--r);}
+.sc-b{background:var(--bl2);color:var(--bl);} .sc-p{background:var(--pu2);color:var(--pu);}
+.notice{background:var(--am2);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:9px 12px;font-size:11.5px;color:var(--am);margin-top:9px;line-height:1.5;}
+.qpbar{padding:0 14px 9px;display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0;}
+.qp{padding:4px 9px;border:1px solid var(--b2);border-radius:20px;font-size:11px;color:var(--t2);cursor:pointer;background:none;font-family:var(--sans);transition:all .15s;white-space:nowrap;}
+.qp:hover{border-color:var(--g);color:var(--g);background:var(--g2);}
+.ibar{padding:10px 14px;border-top:1px solid var(--b);background:var(--bg2);display:flex;gap:7px;align-items:flex-end;flex-shrink:0;}
+.cinput{flex:1;padding:8px 12px;border:1px solid var(--b2);border-radius:7px;font-family:var(--sans);font-size:13px;background:var(--bg3);color:var(--t);resize:none;outline:none;transition:border-color .15s;max-height:110px;line-height:1.5;}
+.cinput:focus{border-color:var(--google);}
+.cinput::placeholder{color:var(--t3);}
+.sbtn{padding:8px 16px;background:var(--google);color:#fff;border:none;border-radius:7px;font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;height:38px;}
+.sbtn:disabled{opacity:.3;cursor:not-allowed;}
+
+/* HISTORY PANEL */
+.hist-layout{flex:1;overflow-y:auto;padding:20px 24px;}
+.hist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+.hist-card{background:var(--bg2);border:1px solid var(--b2);border-radius:10px;padding:14px;cursor:pointer;transition:all .15s;}
+.hist-card:hover{border-color:var(--google);background:var(--bg3);}
+.hc-bank{font-family:var(--mono);font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
+.hc-file{font-weight:500;font-size:13px;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hc-period{font-size:11px;color:var(--t2);margin-bottom:8px;}
+.hc-stats{display:flex;gap:8px;flex-wrap:wrap;}
+.hcs{font-family:var(--mono);font-size:9.5px;padding:2px 7px;border-radius:3px;}
+.hcs-g{background:var(--g2);color:var(--g);} .hcs-r{background:var(--r2);color:var(--r);}
+.hcs-b{background:var(--bl2);color:var(--bl);}
+.hc-date{font-size:10px;color:var(--t3);margin-top:8px;font-family:var(--mono);}
+.hc-actions{display:flex;gap:6px;margin-top:10px;}
+.hca{padding:5px 10px;border-radius:5px;font-size:11px;cursor:pointer;border:1px solid var(--b2);background:var(--bg3);color:var(--t2);font-family:var(--sans);transition:all .15s;}
+.hca:hover{border-color:var(--g);color:var(--g);}
+.hca.del{color:var(--r);border-color:rgba(248,113,113,.2);}
+.hca.del:hover{background:var(--r2);}
+.empty-hist{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px;text-align:center;color:var(--t3);gap:10px;}
+.empty-hist .ei{font-size:36px;opacity:.25;}
+.empty-hist p{font-size:13px;line-height:1.6;max-width:260px;}
+
+/* CHECK + VENDOR panels */
+.chk-layout{display:flex;flex:1;overflow:hidden;}
+.chk-left{width:290px;min-width:290px;background:var(--bg2);border-right:1px solid var(--b);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.chk-tb{padding:12px 14px;border-bottom:1px solid var(--b);flex-shrink:0;}
+.chk-scroll{flex:1;overflow-y:auto;}
+.chk-item{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid var(--b);cursor:pointer;transition:background .1s;}
+.chk-item:hover,.chk-item.sel{background:var(--bg3);}
+.chk-thumb{width:58px;height:34px;border-radius:3px;object-fit:cover;border:1px solid var(--b2);flex-shrink:0;background:var(--bg3);}
+.chk-info{flex:1;min-width:0;}
+.chk-num{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--bl);}
+.chk-meta{font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chk-badge{font-family:var(--mono);font-size:8px;padding:1px 5px;border-radius:3px;flex-shrink:0;}
+.cb-ok{background:var(--g2);color:var(--g);} .cb-nd{background:var(--bg3);color:var(--t3);border:1px solid var(--b2);}
+.chk-right{flex:1;overflow-y:auto;padding:20px 24px;}
+.chk-img-full{width:100%;border-radius:6px;border:1px solid var(--b2);margin-bottom:12px;display:block;}
+.cf{background:var(--bg3);border:1px solid var(--b);border-radius:8px;padding:13px;}
+.cf-row{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid var(--b);font-size:12px;}
+.cf-row:last-child{border-bottom:none;}
+.cf-l{color:var(--t3);font-family:var(--mono);font-size:9.5px;min-width:110px;}
+.cf-v{color:var(--t);font-family:var(--mono);font-size:11px;}
+.cf-v.hi{color:var(--g);font-weight:600;}
+.match-ok{background:var(--g2);border:1px solid var(--g3);border-radius:6px;padding:9px 12px;font-size:12px;color:var(--g);margin-top:10px;}
+.match-nd{background:var(--am2);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:9px 12px;font-size:12px;color:var(--am);margin-top:10px;}
+.vdb-layout{display:flex;flex:1;overflow:hidden;}
+.vl{width:300px;min-width:300px;border-right:1px solid var(--b);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.vtb{padding:12px 14px;border-bottom:1px solid var(--b);display:flex;flex-direction:column;gap:7px;flex-shrink:0;}
+.vsearch{width:100%;padding:7px 10px;border:1px solid var(--b2);border-radius:6px;background:var(--bg3);color:var(--t);font-family:var(--sans);font-size:12px;outline:none;}
+.vsearch:focus{border-color:var(--google);}
+.vsearch::placeholder{color:var(--t3);}
+.vbrow{display:flex;gap:5px;flex-wrap:wrap;}
+.vbtn{padding:6px 10px;border:1px solid var(--b2);border-radius:5px;background:var(--bg3);color:var(--t2);font-size:10.5px;font-family:var(--sans);cursor:pointer;transition:all .15s;}
+.vbtn:hover{border-color:var(--g);color:var(--g);}
+.vbtn.p{background:var(--google);color:#fff;border-color:var(--google);font-weight:600;}
+.vlist{flex:1;overflow-y:auto;}
+.vi{display:flex;align-items:center;gap:9px;padding:9px 14px;border-bottom:1px solid var(--b);cursor:pointer;transition:background .1s;}
+.vi:hover,.vi.sel{background:var(--bg3);}
+.vi .vn{font-weight:500;font-size:12.5px;flex:1;} .vi .vc{font-family:var(--mono);font-size:9.5px;color:var(--bl);}
+.vi .vac{font-family:var(--mono);font-size:8.5px;color:var(--t3);background:var(--bg3);padding:1px 5px;border-radius:3px;}
+.vr{flex:1;overflow-y:auto;padding:18px 22px;}
+.vdname{font-family:var(--serif);font-size:22px;margin-bottom:4px;}
+.vdacc{display:inline-block;background:var(--bl2);color:var(--bl);border:1px solid var(--bl3);padding:2px 9px;border-radius:4px;font-size:11px;font-family:var(--mono);}
+.vdsect{margin:14px 0;} .vdst{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px;}
+.apills{display:flex;flex-wrap:wrap;gap:5px;}
+.apill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--b2);border-radius:20px;font-family:var(--mono);font-size:10.5px;color:var(--t2);}
+.apill button{background:none;border:none;color:var(--t3);cursor:pointer;font-size:10px;padding:0;}
+.apill button:hover{color:var(--r);}
+.aarow{display:flex;gap:5px;margin-top:6px;}
+.aainput{flex:1;padding:5px 9px;border:1px solid var(--b2);border-radius:5px;background:var(--bg);color:var(--t);font-family:var(--mono);font-size:10.5px;outline:none;}
+.aainput:focus{border-color:var(--google);}
+.aainput::placeholder{color:var(--t3);}
+.aabtn{padding:5px 10px;background:var(--bg3);border:1px solid var(--b2);border-radius:5px;color:var(--t);font-size:10.5px;cursor:pointer;}
+.aabtn:hover{border-color:var(--g);color:var(--g);}
+.editrow{display:flex;gap:6px;align-items:center;margin-bottom:7px;}
+.edinput{flex:1;padding:7px 9px;border:1px solid var(--b2);border-radius:5px;background:var(--bg);color:var(--t);font-family:var(--sans);font-size:12px;outline:none;}
+.edinput:focus{border-color:var(--google);}
+.edsel{flex:1;padding:7px 9px;border:1px solid var(--b2);border-radius:5px;background:var(--bg);color:var(--t);font-family:var(--sans);font-size:12px;outline:none;}
+.edsel option{background:var(--bg2);}
+.edsave{padding:7px 13px;background:var(--google);color:#fff;border:none;border-radius:5px;font-size:11.5px;font-weight:600;cursor:pointer;}
+.eddel{padding:7px 11px;background:none;border:1px solid rgba(248,113,113,.3);color:var(--r);border-radius:5px;font-size:11.5px;cursor:pointer;}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--t3);gap:8px;}
+.empty .ei{font-size:30px;opacity:.3;}
+.empty p{font-size:12px;line-height:1.5;max-width:180px;}
+#csvInput,#imgInput{display:none;}
+.mbg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;align-items:center;justify-content:center;}
+.mbg.on{display:flex;}
+.modal{background:var(--bg2);border:1px solid var(--b2);border-radius:10px;padding:22px;width:440px;max-width:90vw;}
+.modal h3{font-family:var(--serif);font-size:18px;margin-bottom:14px;}
+.mrow{margin-bottom:10px;}
+.mrow label{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:4px;}
+.mrow input,.mrow select,.mrow textarea{width:100%;padding:7px 9px;border:1px solid var(--b2);border-radius:5px;background:var(--bg3);color:var(--t);font-family:var(--sans);font-size:12.5px;outline:none;}
+.mrow input:focus,.mrow select:focus,.mrow textarea:focus{border-color:var(--google);}
+.mrow select option{background:var(--bg2);}
+.mrow textarea{resize:vertical;min-height:55px;}
+.mbtns{display:flex;gap:7px;justify-content:flex-end;margin-top:14px;}
+.mcancel{padding:7px 14px;border:1px solid var(--b2);border-radius:5px;background:none;cursor:pointer;font-size:12px;color:var(--t);font-family:var(--sans);}
+.msave{padding:7px 14px;background:var(--google);color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--sans);}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="lm">📒</div>LedgerAI<span class="lv">v6</span><span class="lbadge">FREE · Gemini</span></div>
+  <div class="htabs">
+    <button class="htab on" onclick="switchPanel('chat')">📊 Process</button>
+    <button class="htab" onclick="switchPanel('history')">🗃 History</button>
+    <button class="htab" onclick="switchPanel('checks')">🖼 Checks</button>
+    <button class="htab" onclick="switchPanel('vendors')">🗂 Vendors</button>
+  </div>
+  <div class="server-status" id="serverStatus"><span class="ss-dot" id="ssDot"></span><span id="ssLabel">Connecting…</span></div>
+</header>
+
+<div class="app">
+
+  <!-- PROCESS PANEL -->
+  <div class="panel on" id="panel-chat">
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <aside class="sidebar">
+        <div class="sbs">
+          <div class="sbl">Upload Statement</div>
+          <div class="upz" id="upz">
+            <div class="uico">📄</div>
+            <p><strong>Drop PDF here</strong><br>or click to browse</p>
+            <div class="bchips">
+              <span class="bchip">Truist</span><span class="bchip">Chase</span><span class="bchip">BofA</span>
+              <span class="bchip">Wells Fargo</span><span class="bchip">PNC</span><span class="bchip">United</span>
+            </div>
+          </div>
+          <input type="file" id="pdfInput" accept=".pdf">
+          <div class="fpill" id="fpill">
+            <div class="fn" id="fname">—</div>
+            <div class="fm" id="fmeta">—</div>
+            <span class="chg" onclick="resetAll()">↑ Upload new file</span>
+          </div>
+          <div class="prog-wrap" id="progWrap">
+            <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+            <div class="prog-lbl" id="progLbl">Initializing…</div>
+            <div class="pips" id="pips"></div>
+          </div>
+        </div>
+        <div class="sbs" id="balSec" style="display:none;">
+          <div class="sbl">Account Summary</div>
+          <div class="bal-grid" id="balGrid"></div>
+        </div>
+        <div class="sbs">
+          <div class="sbl">Totals</div>
+          <div class="sum-card dep"><div class="sct">Deposits & Credits</div><div class="sca" id="sdep">—</div><div class="scc" id="cdep">0 transactions</div></div>
+          <div class="sum-card dbt"><div class="sct">Debits & Withdrawals</div><div class="sca" id="sdbt">—</div><div class="scc" id="cdbt">0 transactions</div></div>
+          <div class="sum-card chk"><div class="sct">Checks</div><div class="sca" id="schk">—</div><div class="scc" id="cchk">0 checks</div></div>
+        </div>
+        <div class="sbs">
+          <div class="sbl">Export for QuickBooks</div>
+          <div class="exp-btns">
+            <button class="exp-btn" id="btnQBO" onclick="exportQBO()" disabled style="border-color:rgba(74,222,128,.3)">🏦 Export .QBO File <span class="ebadge" style="background:var(--g2);color:var(--g)">Best · 1-click import</span></button>
+            <button class="exp-btn" id="btnCSV" onclick="exportFile('csv')" disabled>📊 Export CSV <span class="ebadge eb-g">QBO Online</span></button>
+            <button class="exp-btn" id="btnIIF" onclick="exportFile('iif')" disabled>📁 Export IIF File <span class="ebadge eb-b">QB Desktop</span></button>
+            <button class="exp-btn" id="btnJSON" onclick="exportJSON()" disabled>📋 Full JSON <span class="ebadge eb-a">All Data</span></button>
+          </div>
+          <p style="font-size:10px;color:var(--t3);margin-top:8px;line-height:1.5;">💡 <strong style="color:var(--t2)">.QBO is the best format</strong> — QuickBooks recognizes it instantly, imports with no mapping needed, and works for both Online and Desktop.</p>
+        </div>
+      </aside>
+
+      <div class="chat-wrap">
+        <div class="chat-area" id="chatArea">
+          <div class="msg"><div class="av bot">G</div>
+            <div class="bubble">
+              <strong style="font-family:var(--serif);font-size:15px">LedgerAI — Backend Edition</strong>
+              <p style="margin-top:7px">Your API key is stored <strong>securely on the server</strong> — never exposed in the browser. All vendor rules and transaction history are <strong>saved permanently</strong> in the database and available to your whole team.</p>
+              <p style="margin-top:8px;color:var(--t3);font-size:12px">Drop a bank statement PDF on the left to begin.</p>
+            </div>
+          </div>
+        </div>
+        <div class="qpbar">
+          <button class="qp" onclick="sq('Show all deposits with dates and amounts')">All deposits</button>
+          <button class="qp" onclick="sq('List every check with check number and amount')">All checks</button>
+          <button class="qp" onclick="sq('Show all debits and withdrawals')">All debits</button>
+          <button class="qp" onclick="sq('What are the payroll transactions?')">Payroll</button>
+          <button class="qp" onclick="sq('Group total amounts by QuickBooks account')">By category</button>
+        </div>
+        <div class="ibar">
+          <textarea class="cinput" id="cinput" placeholder="Ask anything about your transactions…" rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+          <button class="sbtn" id="sbtn" onclick="sendMsg()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY PANEL -->
+  <div class="panel" id="panel-history">
+    <div class="hist-layout">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h2 style="font-family:var(--serif);font-size:20px;">Statement History</h2>
+        <button class="vbtn" onclick="loadHistory()">↻ Refresh</button>
+      </div>
+      <div class="hist-grid" id="histGrid"><div class="empty-hist"><div class="ei">🗃</div><p>No statements processed yet. Upload a PDF to get started.</p></div></div>
+    </div>
+  </div>
+
+  <!-- CHECK IMAGES PANEL -->
+  <div class="panel" id="panel-checks">
+    <div class="chk-layout">
+      <div class="chk-left">
+        <div class="chk-tb">
+          <div class="sbl" style="margin:0 0 8px">Check Images</div>
+          <button class="vbtn p" style="width:100%;text-align:center;padding:8px;" onclick="document.getElementById('imgInput').click()">+ Upload Check Image</button>
+          <input type="file" id="imgInput" accept="image/*" multiple>
+          <p style="font-size:10px;color:var(--t3);margin-top:8px;">Extracted from PDF automatically. Click any check then run AI OCR to read handwritten details.</p>
+        </div>
+        <div class="chk-scroll" id="chkList"><div class="empty"><div class="ei">🖼</div><p>Upload a PDF to extract check images</p></div></div>
+      </div>
+      <div class="chk-right" id="chkRight"><div class="empty" style="margin-top:80px"><div class="ei">🔍</div><p>Select a check to view</p></div></div>
+    </div>
+  </div>
+
+  <!-- VENDOR PANEL -->
+  <div class="panel" id="panel-vendors">
+    <div class="vdb-layout">
+      <div class="vl">
+        <div class="vtb">
+          <input class="vsearch" id="vsearch" placeholder="Search vendors…" oninput="renderVL()">
+          <div class="vbrow">
+            <button class="vbtn p" onclick="openAddV()">+ Add Vendor</button>
+            <button class="vbtn" onclick="document.getElementById('csvInput').click()">📥 Import CSV</button>
+            <input type="file" id="csvInput" accept=".csv">
+            <button class="vbtn" onclick="exportVCSV()">📤 Export</button>
+          </div>
+        </div>
+        <div class="vlist" id="vlist"></div>
+      </div>
+      <div class="vr" id="vr"><div class="empty"><div class="ei">🗂</div><p>Select a vendor to edit</p></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Vendor Modal -->
+<div class="mbg" id="vmodal">
+  <div class="modal">
+    <h3>Add Vendor</h3>
+    <div class="mrow"><label>Vendor Name</label><input type="text" id="mname" placeholder="e.g. Paychex, Shell Oil, Amazon"></div>
+    <div class="mrow"><label>QuickBooks Account</label>
+      <select id="macc"><option value="">— Select —</option>
+        <optgroup label="Expenses">
+          <option>Office Supplies</option><option>Automobile Expense</option><option>Telephone Expense</option>
+          <option>Utilities</option><option>Meals &amp; Entertainment</option><option>Travel Expense</option>
+          <option>Advertising &amp; Marketing</option><option>Insurance Expense</option><option>Rent Expense</option>
+          <option>Payroll Expense</option><option>Payroll Taxes</option><option>401(k) / Retirement</option>
+          <option>Bank Charges &amp; Fees</option><option>Professional Fees</option>
+          <option>Repairs &amp; Maintenance</option><option>Subscriptions &amp; Software</option>
+          <option>Shipping &amp; Freight</option><option>Water &amp; Sewer</option>
+          <option>Dues &amp; Memberships</option><option>Taxes &amp; Licenses</option><option>Uncategorized Expense</option>
+        </optgroup>
+        <optgroup label="Income">
+          <option>Healthcare Revenue</option><option>Sales Revenue</option><option>Service Revenue</option><option>Other Income</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="mrow"><label>Custom Account</label><input type="text" id="maccC" placeholder="Overrides dropdown above"></div>
+    <div class="mrow"><label>Aliases (comma-separated)</label><textarea id="maliases" placeholder="AMZN, AMZ, AMAZON.COM, AMAZON MKTPL"></textarea></div>
+    <div class="mrow"><label>Tag</label><input type="text" id="mtag" placeholder="e.g. Payroll, Healthcare, Fuel"></div>
+    <div class="mbtns"><button class="mcancel" onclick="closeV()">Cancel</button><button class="msave" onclick="saveV()">Save Vendor</button></div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// All API calls go to our own backend server
+const API = window.location.origin + '/api';
+
+// ── STATE ──
+let deposits=[],debits=[],checks=[],checkImages=[];
+let summaryData={},vendors=[],currentStatementId=null,selChkId=null,selVid=null;
+
+// ── SERVER HEALTH CHECK ──
+async function checkServer(){
+  try{
+    const r=await fetch(API+'/health');
+    const d=await r.json();
+    document.getElementById('ssDot').className='ss-dot ok';
+    document.getElementById('ssLabel').textContent=d.gemini?'Server ready':'Server: no API key';
+  }catch(e){
+    document.getElementById('ssDot').className='ss-dot err';
+    document.getElementById('ssLabel').textContent='Server offline';
+  }
+}
+
+// ── PDF PROCESSING ──
+const upz=document.getElementById('upz');
+const pdfI=document.getElementById('pdfInput');
+upz.addEventListener('click',()=>pdfI.click());
+upz.addEventListener('dragover',e=>{e.preventDefault();upz.classList.add('drag');});
+upz.addEventListener('dragleave',()=>upz.classList.remove('drag'));
+upz.addEventListener('drop',e=>{e.preventDefault();upz.classList.remove('drag');const f=e.dataTransfer.files[0];if(f)handleFile(f);});
+pdfI.addEventListener('change',()=>{if(pdfI.files[0])handleFile(pdfI.files[0]);});
+
+async function handleFile(file){
+  document.getElementById('fname').textContent=file.name;
+  document.getElementById('fmeta').textContent='Processing…';
+  document.getElementById('fpill').style.display='block';
+  upz.style.display='none';
+  document.getElementById('progWrap').style.display='block';
+  setP(0,'Loading PDF…');
+  addBot(`<strong>📄 ${file.name}</strong> — rendering pages for Gemini vision reading…`,false);
+  showTyping();
+  try{
+    const ab=await file.arrayBuffer();
+    const pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
+    const total=pdfDoc.numPages;
+    document.getElementById('pips').innerHTML=Array.from({length:total},(_,i)=>`<div class="pip" id="pip${i+1}">${i+1}</div>`).join('');
+    setP(5,`Rendering ${total} pages…`);
+
+    const pageImgs=[];
+    for(let p=1;p<=total;p++){
+      setPip(p,'go');
+      setP(5+Math.round(p/total*30),`Rendering page ${p}/${total}…`);
+      const page=await pdfDoc.getPage(p);
+      const vp=page.getViewport({scale:2.2});
+      const canvas=document.createElement('canvas');
+      canvas.width=vp.width;canvas.height=vp.height;
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      pageImgs.push({p,b64:canvas.toDataURL('image/jpeg',0.92).split(',')[1],canvas});
+      setPip(p,'ok');
+    }
+
+    setP(38,'Sending pages to server for AI reading…');
+    const allData={deposits:[],debits:[],checks:[],chkImgs:[],summary:{}};
+    let txId=1;
+
+    for(let i=0;i<pageImgs.length;i++){
+      const pg=pageImgs[i];
+      setPip(pg.p,'go');
+      setP(38+Math.round(i/pageImgs.length*48),`AI reading page ${pg.p}/${total}…`);
+      try{
+        // Send image to our server — server calls Gemini with API key
+        const r=await fetch(API+'/process-page',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({base64:pg.b64,mimeType:'image/jpeg',pageNum:pg.p,totalPages:total})
+        });
+        if(!r.ok){const e=await r.json();throw new Error(e.error||'Server error');}
+        const result=await r.json();
+
+        if(result.transactions){
+          result.transactions.forEach(tx=>{
+            tx.id=`T${txId++}`;
+            if(tx.type==='DEPOSIT')allData.deposits.push(tx);
+            else if(tx.type==='CHECK')allData.checks.push(tx);
+            else allData.debits.push(tx);
+          });
+        }
+        if(result.summary)Object.assign(allData.summary,result.summary);
+        if(result.check_images?.length){
+          result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
+        }
+      }catch(e){console.warn(`Page ${pg.p} error:`,e.message);setPip(pg.p,'er');}
+      setPip(pg.p,'ok');
+    }
+
+    // Categorize unmatched
+    const unmatched=allData.debits.filter(t=>t.confidence==='LOW'||!t.account);
+    if(unmatched.length>0){
+      setP(88,'Categorizing unmatched transactions…');
+      try{
+        const r=await fetch(API+'/categorize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transactions:unmatched})});
+        const cats=await r.json();
+        const map={};cats.forEach(c=>map[c.id]=c.account);
+        allData.debits=allData.debits.map(t=>map[t.id]?{...t,account:map[t.id],confidence:'AI'}:t);
+      }catch(e){console.warn('Categorize error:',e);}
+    }
+
+    setP(94,'Saving to database…');
+    // Save to server database
+    try{
+      const r=await fetch(API+'/statements',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({filename:file.name,summary:allData.summary,deposits:allData.deposits,debits:allData.debits,checks:allData.checks,checkImages:allData.chkImgs.map(c=>({...c,src:undefined}))})
+      });
+      const saved=await r.json();
+      if(saved.statementId)currentStatementId=saved.statementId;
+    }catch(e){console.warn('Save error:',e);}
+
+    setP(100,'Complete!');
+    setTimeout(()=>document.getElementById('progWrap').style.display='none',2000);
+
+    deposits=allData.deposits;debits=allData.debits;checks=allData.checks;summaryData=allData.summary;
+    checkImages=allData.chkImgs.map(ci=>{
+      const tx=ci.check_number?checks.find(c=>String(c.check_number)===String(ci.check_number)):null;
+      return{...ci,matched:!!tx,txDate:tx?.date,txAmount:tx?.amount};
+    });
+
+    updateStats();updateBalSec();renderCheckList();
+    ['btnCSV','btnIIF','btnJSON','btnQBO'].forEach(id=>document.getElementById(id).disabled=false);
+    document.getElementById('fmeta').textContent=`${deposits.length+debits.length+checks.length} transactions · saved to DB`;
+
+    const uncat=debits.filter(t=>!t.account||t.account==='Uncategorized Expense');
+    let html=`<strong style="font-family:var(--serif);font-size:15px">✅ Statement processed & saved</strong>
+<p style="color:var(--t3);font-size:11px;margin:3px 0 8px">${total} pages · ${deposits.length+debits.length+checks.length} transactions · ${checkImages.length} check images · saved to database</p>
+<div class="srow">
+  <span class="sc sc-g">▲ ${deposits.length} deposits — $${fmt(deposits.reduce((s,t)=>s+t.amount,0))}</span>
+  <span class="sc sc-r">▼ ${debits.length} debits — $${fmt(debits.reduce((s,t)=>s+t.amount,0))}</span>
+  <span class="sc sc-b">✎ ${checks.length} checks — $${fmt(checks.reduce((s,t)=>s+t.amount,0))}</span>
+  ${checkImages.length?`<span class="sc sc-p">🖼 ${checkImages.length} check images</span>`:''}
+</div>`;
+    if(deposits.length){html+=`<p style="font-size:11px;font-weight:500;margin:12px 0 4px;color:var(--g)">▲ Deposits & Credits</p>`;html+=buildTable(deposits);}
+    if(debits.length){html+=`<p style="font-size:11px;font-weight:500;margin:12px 0 4px;color:var(--r)">▼ Debits & Withdrawals</p>`;html+=buildTable(debits);}
+    if(checks.length){html+=`<p style="font-size:11px;font-weight:500;margin:12px 0 4px;color:var(--bl)">✎ Checks</p>`;html+=buildTable(checks);}
+    if(uncat.length)html+=`<div class="notice">⚠ ${uncat.length} uncategorized — add vendors in the <strong>Vendors</strong> tab.</div>`;
+    removeTyping();addBot(html);
+  }catch(e){
+    removeTyping();
+    document.getElementById('progWrap').style.display='none';
+    addBot(`<strong style="color:var(--r)">Error:</strong> ${e.message}`);
+    console.error(e);
+  }
+}
+
+function setP(p,l){document.getElementById('progFill').style.width=p+'%';document.getElementById('progLbl').textContent=l;}
+function setPip(n,s){const el=document.getElementById(`pip${n}`);if(el)el.className='pip '+s;}
+function fmt(n){return(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function updateStats(){
+  document.getElementById('sdep').textContent='$'+fmt(deposits.reduce((s,t)=>s+t.amount,0));
+  document.getElementById('cdep').textContent=deposits.length+' transactions';
+  document.getElementById('sdbt').textContent='$'+fmt(debits.reduce((s,t)=>s+t.amount,0));
+  document.getElementById('cdbt').textContent=debits.length+' transactions';
+  document.getElementById('schk').textContent='$'+fmt(checks.reduce((s,t)=>s+t.amount,0));
+  document.getElementById('cchk').textContent=checks.length+' checks';
+}
+function updateBalSec(){
+  const s=summaryData;if(!s.opening_balance&&!s.closing_balance)return;
+  document.getElementById('balSec').style.display='block';
+  const rows=[s.bank_name?['Bank',s.bank_name]:null,s.statement_period?['Period',s.statement_period]:null,s.opening_balance!=null?['Previous balance','$'+fmt(s.opening_balance)]:null,s.total_deposits!=null?['+ Deposits','$'+fmt(s.total_deposits)]:null,s.total_checks!=null?['− Checks','$'+fmt(s.total_checks)]:null,s.total_withdrawals!=null?['− Withdrawals','$'+fmt(s.total_withdrawals)]:null,s.closing_balance!=null?['New balance','$'+fmt(s.closing_balance)]:null].filter(Boolean);
+  document.getElementById('balGrid').innerHTML=rows.map(([l,v])=>`<div class="bal-row"><span class="bal-l">${l}</span><span class="bal-v">${v}</span></div>`).join('');
+}
+function resetAll(){upz.style.display='block';document.getElementById('fpill').style.display='none';document.getElementById('progWrap').style.display='none';document.getElementById('balSec').style.display='none';pdfI.value='';deposits=[];debits=[];checks=[];checkImages=[];summaryData={};currentStatementId=null;updateStats();['btnCSV','btnIIF','btnJSON','btnQBO'].forEach(id=>document.getElementById(id).disabled=true);document.getElementById('pips').innerHTML='';renderCheckList();}
+function buildTable(txs){if(!txs?.length)return'<p style="color:var(--t3);font-style:italic;font-size:12px">None found.</p>';return`<div class="txw"><table class="txt"><thead><tr><th>Date</th><th>Type</th><th>Chk#</th><th>Description</th><th>Amount</th><th>QBO Account</th><th>Match</th></tr></thead><tbody>${txs.map(tx=>`<tr><td style="color:var(--t3)">${tx.date||'—'}</td><td><span class="tag ${tx.type==='DEPOSIT'?'dep':tx.type==='CHECK'?'chk':'dbt'}">${tx.type}</span></td><td style="color:var(--bl)">${tx.check_number||'—'}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${(tx.raw_description||tx.description||'').replace(/"/g,'')}">${tx.description||'—'}</td><td class="${tx.type==='DEPOSIT'?'amc':'amd'}">${tx.type==='DEPOSIT'?'+':'-'}$${fmt(tx.amount)}</td><td>${tx.account?`<span class="acct">${tx.account}</span>`:'<span class="unc">Uncategorized</span>'}</td><td style="color:var(--t3);font-size:9px">${tx.confidence||'?'}</td></tr>`).join('')}</tbody></table></div>`;}
+
+// EXPORTS
+// QBO — best format, 1-click import into QuickBooks Online and Desktop
+async function exportQBO(){
+  // If we have a saved statement ID, download directly from server (includes DB data)
+  if(currentStatementId){
+    window.open(`${API}/statements/${currentStatementId}/export/qbo`,'_blank');
+    return;
+  }
+  // Fallback: POST current in-memory data to server to generate QBO on the fly
+  try{
+    const r=await fetch(API+'/export/qbo',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({deposits,debits,checks,summary:summaryData,filename:document.getElementById('fname').textContent||'statement'})
+    });
+    if(!r.ok){const e=await r.json();throw new Error(e.error);}
+    const blob=await r.blob();
+    const u=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    const fname=document.getElementById('fname').textContent.replace(/\.pdf$/i,'')||'statement';
+    a.href=u;a.download=fname+'.qbo';a.click();URL.revokeObjectURL(u);
+    addBot('✅ <strong>.QBO file downloaded</strong><br><small style="color:var(--t3)">To import:<br>• <strong>QuickBooks Online:</strong> Banking → Upload transactions → select .qbo file<br>• <strong>QuickBooks Desktop:</strong> File → Utilities → Import → Web Connect Files → select .qbo file</small>');
+  }catch(e){addBot(`<strong style="color:var(--r)">QBO export error:</strong> ${e.message}`);}
+}
+function exportFile(type){if(!currentStatementId)return;window.open(`${API}/statements/${currentStatementId}/export/${type}`,'_blank');}
+function exportJSON(){if(!deposits.length&&!debits.length&&!checks.length)return;const d=JSON.stringify({exported:new Date().toISOString(),summaryData,deposits,debits,checks,checkImages:checkImages.map(c=>({...c,src:'[omitted]'}))},null,2);const b=new Blob([d],{type:'application/json'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='statement.json';a.click();URL.revokeObjectURL(u);}
+
+// CHAT
+function addBot(html,scroll=true){const a=document.getElementById('chatArea');const d=document.createElement('div');d.className='msg';d.innerHTML=`<div class="av bot">G</div><div class="bubble">${html}</div>`;a.appendChild(d);if(scroll)a.scrollTop=a.scrollHeight;}
+function addUser(t){const a=document.getElementById('chatArea');const d=document.createElement('div');d.className='msg u';d.innerHTML=`<div class="av u">You</div><div class="bubble">${t}</div>`;a.appendChild(d);a.scrollTop=a.scrollHeight;}
+let tyEl=null;
+function showTyping(){const a=document.getElementById('chatArea');tyEl=document.createElement('div');tyEl.className='msg';tyEl.innerHTML=`<div class="av bot">G</div><div class="bubble"><div class="typ"><span></span><span></span><span></span></div></div>`;a.appendChild(tyEl);a.scrollTop=a.scrollHeight;}
+function removeTyping(){if(tyEl){tyEl.remove();tyEl=null;}}
+async function sendMsg(){
+  const inp=document.getElementById('cinput');const text=inp.value.trim();if(!text)return;
+  inp.value='';inp.style.height='auto';addUser(text);showTyping();
+  document.getElementById('sbtn').disabled=true;
+  try{
+    const r=await fetch(API+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,context:{deposits:deposits.slice(0,25),debits:debits.slice(0,35),checks,summary:summaryData}})});
+    const d=await r.json();
+    removeTyping();addBot(d.reply||d.error);
+  }catch(e){removeTyping();addBot(`<strong style="color:var(--r)">Error:</strong> ${e.message}`);}
+  document.getElementById('sbtn').disabled=false;
+}
+function sq(t){document.getElementById('cinput').value=t;sendMsg();}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();}}
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,110)+'px';}
+
+// HISTORY
+async function loadHistory(){
+  try{
+    const r=await fetch(API+'/statements');
+    const list=await r.json();
+    const grid=document.getElementById('histGrid');
+    if(!list.length){grid.innerHTML='<div class="empty-hist"><div class="ei">🗃</div><p>No statements processed yet.</p></div>';return;}
+    grid.innerHTML=list.map(s=>`<div class="hist-card">
+      <div class="hc-bank">${s.bank_name||'Bank'} · ${s.statement_period||'Statement'}</div>
+      <div class="hc-file">${s.filename}</div>
+      <div class="hc-stats">
+        <span class="hcs hcs-g">▲ ${s.deposit_count} deposits · $${fmt(s.deposit_total)}</span>
+        <span class="hcs hcs-r">▼ ${s.debit_count} debits</span>
+        <span class="hcs hcs-b">✎ ${s.check_count} checks</span>
+      </div>
+      <div class="hc-date">${new Date(s.processed_at).toLocaleDateString()}</div>
+      <div class="hc-actions">
+        <button class="hca" onclick="downloadHist(${s.id},'qbo')" style="color:var(--g);border-color:rgba(74,222,128,.3)">🏦 QBO</button>
+        <button class="hca" onclick="downloadHist(${s.id},'csv')">📊 CSV</button>
+        <button class="hca" onclick="downloadHist(${s.id},'iif')">📁 IIF</button>
+        <button class="hca del" onclick="deleteHist(${s.id},this)">Delete</button>
+      </div>
+    </div>`).join('');
+  }catch(e){console.error('History error:',e);}
+}
+function downloadHist(id,type){window.open(`${API}/statements/${id}/export/${type}`,'_blank');}
+async function deleteHist(id,btn){
+  if(!confirm('Delete this statement from history?'))return;
+  try{await fetch(`${API}/statements/${id}`,{method:'DELETE'});btn.closest('.hist-card').remove();}
+  catch(e){alert('Error: '+e.message);}
+}
+
+// CHECK IMAGES
+function renderCheckList(){const list=document.getElementById('chkList');if(!checkImages.length){list.innerHTML='<div class="empty"><div class="ei">🖼</div><p>No check images yet</p></div>';return;}list.innerHTML=checkImages.map(c=>`<div class="chk-item ${selChkId===String(c.check_number||c.pageNum)?'sel':''}" onclick="selChk('${c.check_number||c.pageNum}')"><img class="chk-thumb" src="${c.src}" alt=""><div class="chk-info"><div class="chk-num">${c.check_number?'Check #'+c.check_number:'Page '+c.pageNum}</div><div class="chk-meta">${c.payee||''} ${c.amount?'$'+fmt(c.amount):''}</div></div><span class="chk-badge ${c.matched?'cb-ok':'cb-nd'}">${c.matched?'matched':'found'}</span></div>`).join('');}
+function selChk(key){selChkId=String(key);renderCheckList();const c=checkImages.find(x=>String(x.check_number)===String(key)||String(x.pageNum)===String(key));if(!c)return;const tx=c.check_number?checks.find(t=>String(t.check_number)===String(c.check_number)):null;document.getElementById('chkRight').innerHTML=`<img class="chk-img-full" src="${c.src}" alt="Check"><div class="cf"><div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Extracted</div><div class="cf-row"><span class="cf-l">Check #</span><span class="cf-v hi">${c.check_number||'—'}</span></div><div class="cf-row"><span class="cf-l">Date</span><span class="cf-v">${c.date||c.txDate||'—'}</span></div><div class="cf-row"><span class="cf-l">Pay to</span><span class="cf-v hi">${c.payee||'—'}</span></div><div class="cf-row"><span class="cf-l">Amount</span><span class="cf-v hi">${c.amount?'$'+fmt(c.amount):'—'}</span></div><div class="cf-row"><span class="cf-l">Memo</span><span class="cf-v">${c.memo||'—'}</span></div></div>${tx?`<div class="match-ok">✅ Matched: Check #${tx.check_number} · $${fmt(tx.amount)} · ${tx.date}</div>`:`<div class="match-nd">ℹ Not matched to a statement transaction</div>`}<button style="margin-top:12px;padding:8px 16px;background:var(--pu);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans);" id="ocrBtn" onclick="ocrChk('${key}')">🔍 AI OCR — read payee & memo</button><div id="ocrOut"></div>`;}
+async function ocrChk(key){const c=checkImages.find(x=>String(x.check_number)===String(key)||String(x.pageNum)===String(key));if(!c)return;const btn=document.getElementById('ocrBtn');if(btn){btn.disabled=true;btn.textContent='Reading…';}try{const b64=c.src.split(',')[1];const r=await fetch(API+'/ocr-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base64:b64,mimeType:'image/jpeg'})});const ocr=await r.json();const out=document.getElementById('ocrOut');if(out)out.innerHTML=`<div class="cf" style="margin-top:10px"><div style="font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Gemini OCR</div><div class="cf-row"><span class="cf-l">Check #</span><span class="cf-v hi">${ocr.check_number||'—'}</span></div><div class="cf-row"><span class="cf-l">Date</span><span class="cf-v">${ocr.date||'—'}</span></div><div class="cf-row"><span class="cf-l">Pay to</span><span class="cf-v hi">${ocr.payee||'—'}</span></div><div class="cf-row"><span class="cf-l">Amount</span><span class="cf-v hi">${ocr.amount_numeric||'—'}</span></div><div class="cf-row"><span class="cf-l">Written</span><span class="cf-v">${ocr.amount_written||'—'}</span></div><div class="cf-row"><span class="cf-l">Memo</span><span class="cf-v">${ocr.memo||'—'}</span></div><div class="cf-row"><span class="cf-l">Signed</span><span class="cf-v">${ocr.has_signature?'✅ Yes':'Not detected'}</span></div></div>`;if(btn)btn.textContent='✅ Done';}catch(e){if(btn){btn.disabled=false;btn.textContent='Retry';}alert('OCR error: '+e.message);}}
+document.getElementById('imgInput').addEventListener('change',function(){Array.from(this.files).forEach(f=>{const r=new FileReader();r.onload=e=>{checkImages.push({check_number:null,pageNum:'up'+Date.now(),src:e.target.result,matched:false});renderCheckList();};r.readAsDataURL(f);});});
+
+// VENDORS (from server database)
+async function loadVendors(){try{const r=await fetch(API+'/vendors');vendors=await r.json();renderVL();}catch(e){console.error('Vendor load error:',e);}}
+function renderVL(){const q=(document.getElementById('vsearch').value||'').toLowerCase();const f=vendors.filter(v=>!q||v.name.toLowerCase().includes(q)||v.account.toLowerCase().includes(q)||(v.aliases||[]).some(a=>a.toLowerCase().includes(q)));const list=document.getElementById('vlist');if(!f.length){list.innerHTML='<div class="empty"><div class="ei">🔍</div><p>No vendors match</p></div>';return;}list.innerHTML=f.map(v=>`<div class="vi ${selVid===v.id?'sel':''}" onclick="selV(${v.id})"><div style="flex:1;min-width:0"><div class="vn">${v.name}</div><div class="vc">${v.account}</div></div><div class="vac">${(v.aliases||[]).length}</div></div>`).join('');}
+function selV(id){selVid=id;renderVL();const v=vendors.find(x=>x.id===id);if(!v)return;document.getElementById('vr').innerHTML=`<div style="margin-bottom:14px"><div class="vdname">${v.name}</div><span class="vdacc">${v.account}</span>${v.tag?`<span style="margin-left:8px;font-size:10px;color:var(--t3);font-family:var(--mono)">${v.tag}</span>`:''}</div><div class="vdsect"><div class="vdst">Edit</div><div class="editrow"><input class="edinput" id="en" value="${v.name}"><select class="edsel" id="ea">${['Office Supplies','Automobile Expense','Telephone Expense','Utilities','Meals & Entertainment','Travel Expense','Insurance Expense','Rent Expense','Payroll Expense','Payroll Taxes','401(k) / Retirement','Bank Charges & Fees','Professional Fees','Repairs & Maintenance','Subscriptions & Software','Shipping & Freight','Water & Sewer','Healthcare Revenue','Sales Revenue','Other Income','Uncategorized Expense'].map(a=>`<option ${a===v.account?'selected':''}>${a}</option>`).join('')}</select></div><div class="editrow"><input class="edinput" id="eac" placeholder="Custom account"><input class="edinput" id="et" value="${v.tag||''}" placeholder="Tag"><button class="edsave" onclick="updV(${v.id})">Save</button><button class="eddel" onclick="delV(${v.id})">Del</button></div></div><div class="vdsect"><div class="vdst">Aliases (${(v.aliases||[]).length})</div><div class="apills" id="ap${id}">${(v.aliases||[]).map((a,i)=>`<span class="apill">${a}<button onclick="rmA(${v.id},${i})">✕</button></span>`).join('')}</div><div class="aarow"><input class="aainput" id="ai${id}" placeholder="Add aliases, comma-separated…" onkeydown="if(event.key==='Enter')addA(${v.id})"><button class="aabtn" onclick="addA(${v.id})">Add</button></div></div>`;}
+async function updV(id){const v=vendors.find(x=>x.id===id);if(!v)return;const name=document.getElementById('en').value.trim()||v.name;const account=document.getElementById('eac').value.trim()||document.getElementById('ea').value||v.account;const tag=document.getElementById('et').value.trim();await fetch(`${API}/vendors/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,account,aliases:v.aliases||[],tag})});await loadVendors();selV(id);}
+async function delV(id){if(!confirm('Delete?'))return;await fetch(`${API}/vendors/${id}`,{method:'DELETE'});selVid=null;await loadVendors();document.getElementById('vr').innerHTML='<div class="empty"><div class="ei">🗂</div><p>Select a vendor</p></div>';}
+async function addA(id){const v=vendors.find(x=>x.id===id);const inp=document.getElementById(`ai${id}`);const val=inp.value.trim().toUpperCase();if(!val)return;const newAliases=[...(v.aliases||[]),...val.split(',').map(s=>s.trim()).filter(a=>a&&!v.aliases.includes(a))];inp.value='';await fetch(`${API}/vendors/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...v,aliases:newAliases})});await loadVendors();selV(id);}
+async function rmA(id,i){const v=vendors.find(x=>x.id===id);const a=[...v.aliases];a.splice(i,1);await fetch(`${API}/vendors/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...v,aliases:a})});await loadVendors();selV(id);}
+function openAddV(){['mname','maccC','maliases','mtag'].forEach(id=>document.getElementById(id).value='');document.getElementById('macc').value='';document.getElementById('vmodal').classList.add('on');}
+function closeV(){document.getElementById('vmodal').classList.remove('on');}
+async function saveV(){const name=document.getElementById('mname').value.trim();const account=document.getElementById('maccC').value.trim()||document.getElementById('macc').value;if(!name||!account){alert('Name and account required.');return;}const aliases=document.getElementById('maliases').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);const tag=document.getElementById('mtag').value.trim();await fetch(API+'/vendors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,account,aliases,tag})});await loadVendors();closeV();}
+document.getElementById('vmodal').addEventListener('click',e=>{if(e.target===document.getElementById('vmodal'))closeV();});
+document.getElementById('csvInput').addEventListener('change',async function(){
+  const file=this.files[0];if(!file)return;const text=await file.text();const lines=text.split('\n').filter(Boolean);const vList=[];
+  for(let i=1;i<lines.length;i++){const c=parseCSV(lines[i]);if(c.length<2)continue;const name=(c[0]||'').trim();const account=(c[1]||'').trim();if(!name||!account)continue;vList.push({name,account,aliases:(c[2]||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean),tag:(c[3]||'').trim()});}
+  if(vList.length){await fetch(API+'/vendors/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vendors:vList})});await loadVendors();alert(`Imported ${vList.length} vendors.`);}
+});
+function parseCSV(line){const r=[];let c='';let q=false;for(const ch of line){if(ch==='"'){q=!q;}else if(ch===','&&!q){r.push(c.trim());c='';}else c+=ch;}r.push(c.trim());return r;}
+async function exportVCSV(){const r=await fetch(API+'/vendors');const vList=await r.json();const rows=[['vendor_name','account','aliases','tag'],...vList.map(v=>[`"${v.name}"`,`"${v.account}"`,`"${(v.aliases||[]).join(',')}"`,`"${v.tag||''}"`])];const b=new Blob([rows.map(r=>r.join(',')).join('\n')],{type:'text/csv'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='vendor-database.csv';a.click();URL.revokeObjectURL(u);}
+
+function switchPanel(n){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));document.querySelectorAll('.htab').forEach(t=>t.classList.remove('on'));document.getElementById('panel-'+n).classList.add('on');document.querySelectorAll('.htab')[['chat','history','checks','vendors'].indexOf(n)].classList.add('on');if(n==='vendors')loadVendors();if(n==='history')loadHistory();if(n==='checks')renderCheckList();}
+
+// Init
+checkServer();
+setInterval(checkServer, 30000);
+</script>
+</body>
+</html>
