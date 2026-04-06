@@ -16,7 +16,7 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemi
 app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // large for base64 images
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'index.html')));
 
 // Rate limiting — protects your Gemini quota
 const limiter = rateLimit({
