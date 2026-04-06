@@ -13,6 +13,7 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
 
 // ── MIDDLEWARE ──
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // large for base64 images
 app.use(express.static(path.join(__dirname, 'public')));
