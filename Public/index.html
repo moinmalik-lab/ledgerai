@@ -418,8 +418,14 @@ async function checkServer(){
   try{
     const r=await fetch(API+'/health');
     const d=await r.json();
-    document.getElementById('ssDot').className='ss-dot ok';
-    document.getElementById('ssLbl').textContent=d.gemini?'Server ready':'No API key';
+    if(d.gemini){
+      document.getElementById('ssDot').className='ss-dot ok';
+      document.getElementById('ssLbl').textContent='Server ready';
+    } else {
+      document.getElementById('ssDot').className='ss-dot er';
+      document.getElementById('ssLbl').textContent='No API key';
+      addBot('<strong style="color:#e55">⚠️ GEMINI_API_KEY is not configured on the server.</strong> PDF processing will not work. Please set the <code>GEMINI_API_KEY</code> environment variable in your Railway project settings.',false);
+    }
   }catch(e){
     document.getElementById('ssDot').className='ss-dot er';
     document.getElementById('ssLbl').textContent='Server offline';
@@ -493,8 +499,22 @@ async function handleFile(file){
         if(result.check_images?.length){
           result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
         }
+        setPip(pg.p,'ok');
       }catch(e){console.warn(`Page ${pg.p}:`,e.message);setPip(pg.p,'er');}
-      setPip(pg.p,'ok');
+    }
+
+    // Warn if all pages failed
+    const failedPages=pageImgs.filter(pg=>document.getElementById(`pip${pg.p}`)?.className.includes('er'));
+    if(failedPages.length===pageImgs.length){
+      addBot(`<strong style="color:#e55">⚠️ All ${pageImgs.length} page(s) failed to process.</strong> This usually means <code>GEMINI_API_KEY</code> is not set in your Railway environment variables. Go to Railway → your project → Variables and add <code>GEMINI_API_KEY</code>.`,false);
+      hideTyping();
+      setP(100,'Failed — check API key');
+      document.getElementById('progWrap').style.display='none';
+      document.getElementById('fpill').style.display='none';
+      upz.style.display='block';
+      return;
+    } else if(failedPages.length>0){
+      addBot(`<strong style="color:#e8a000">⚠️ ${failedPages.length} page(s) failed</strong> (pages: ${failedPages.map(p=>p.p).join(', ')}). Results may be incomplete.`,false);
     }
 
     // Categorize unmatched debits
