@@ -1,11 +1,33 @@
 require('dotenv').config();
 const express = require('express');
-const Database = require('better-sqlite3');
 const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const path = require('path');
 let pdfParse; try { pdfParse = require('pdf-parse'); } catch(e) { console.warn('pdf-parse not available'); }
+
+// ── SQLITE SHIM: wraps node-sqlite3-wasm to match better-sqlite3 API ──
+// Pure WebAssembly — no Python, no Visual Studio, no native compilation needed.
+const { Database: _WasmDB } = require('node-sqlite3-wasm');
+class _Stmt {
+  constructor(s) { this._s = s; }
+  all(...a)  { return this._s.all(a.flat()); }
+  get(...a)  { return this._s.get(a.flat()); }
+  run(...a)  { return this._s.run(a.flat()); }
+}
+class Database {
+  constructor(p) { this._db = new _WasmDB(p); }
+  exec(sql)      { this._db.exec(sql); return this; }
+  prepare(sql)   { return new _Stmt(this._db.prepare(sql)); }
+  transaction(fn) {
+    const db = this._db;
+    return (...args) => {
+      db.exec('BEGIN');
+      try   { const r = fn(...args); db.exec('COMMIT'); return r; }
+      catch (e) { try { db.exec('ROLLBACK'); } catch(_){} throw e; }
+    };
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
