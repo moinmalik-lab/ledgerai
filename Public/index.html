@@ -409,6 +409,12 @@ header{background:var(--bg2);border-bottom:1px solid var(--b);padding:0 20px;hei
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const API = window.location.origin + '/api';
 
+function arrayBufferToBase64(buf){
+  const bytes=new Uint8Array(buf);let b='';const chunk=32768;
+  for(let i=0;i<bytes.length;i+=chunk)b+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+  return btoa(b);
+}
+
 // STATE
 let deposits=[],debits=[],checks=[],checkImages=[];
 let summaryData={},vendors=[],currentStmtId=null,selChkId=null,selVid=null;
@@ -473,87 +479,131 @@ async function handleFile(file){
     return;
   }
 
-  setP(2,'Loading PDF…');
+  setP(2,'Reading PDF…');
   try{
     const ab=await file.arrayBuffer();
-    const pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
+    // Convert to base64 before passing to pdfjsLib (which may transfer the buffer)
+    const pdfB64=arrayBufferToBase64(ab);
+    const pdfDoc=await pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise;
     const total=pdfDoc.numPages;
     document.getElementById('pips').innerHTML=Array.from({length:total},(_,i)=>`<div class="pip" id="pip${i+1}">${i+1}</div>`).join('');
-    setP(5,`Rendering ${total} pages…`);
 
-    // Render pages to images
-    const pageImgs=[];
-    for(let p=1;p<=total;p++){
-      setPip(p,'go');
-      setP(5+Math.round(p/total*30),`Rendering page ${p}/${total}…`);
-      const page=await pdfDoc.getPage(p);
-      const vp=page.getViewport({scale:2.2});
-      const canvas=document.createElement('canvas');
-      canvas.width=vp.width;canvas.height=vp.height;
-      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
-      pageImgs.push({p,b64:canvas.toDataURL('image/jpeg',0.92).split(',')[1],canvas});
-      setPip(p,'ok');
-    }
-
-    setP(38,'Sending to server for AI reading…');
     const allData={deposits:[],debits:[],checks:[],chkImgs:[],summary:{}};
-    let txId=1;
-    let donePages=0;
     const CONCURRENCY=4;
+    let useVision=false;
 
-    async function processPage(pg){
-      setPip(pg.p,'go');
-      try{
-        const r=await fetch(API+'/process-page',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({base64:pg.b64,mimeType:'image/jpeg',pageNum:pg.p,totalPages:total})
-        });
-        if(!r.ok){const e=await r.json();throw new Error(e.error||'Server error');}
+    // ── FAST PATH: try text extraction first (1 Gemini call for whole doc) ──
+    setP(10,'Extracting text from PDF…');
+    try{
+      const r=await fetch(API+'/process-pdf-text',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({base64:pdfB64})
+      });
+      if(r.ok){
         const result=await r.json();
-        if(result.transactions){
+        if(result.scanned||!result.transactions?.length){
+          useVision=true;
+          addBot('PDF has no text layer (scanned document) — switching to AI vision…',false);
+        } else {
           result.transactions.forEach(tx=>{
             if(tx.type==='DEPOSIT')allData.deposits.push(tx);
             else if(tx.type==='CHECK')allData.checks.push(tx);
             else allData.debits.push(tx);
           });
+          if(result.summary)Object.assign(allData.summary,result.summary);
+          addBot(`Text extracted — found <strong>${result.transactions.length} transactions</strong>. Now scanning pages for check images…`,false);
+          setP(55,'Scanning pages for check images…');
         }
-        if(result.summary)Object.assign(allData.summary,result.summary);
-        if(result.check_images?.length){
-          result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
+      } else { useVision=true; }
+    }catch(e){ useVision=true; console.warn('Text extraction failed:',e.message); }
+
+    // ── Render pages (needed for both paths) ──
+    const pageImgs=[];
+    const renderScale=useVision?2.2:1.5; // lower scale for check-image-only scan
+    for(let p=1;p<=total;p++){
+      setPip(p,'go');
+      if(useVision)setP(10+Math.round(p/total*25),`Rendering page ${p}/${total}…`);
+      const page=await pdfDoc.getPage(p);
+      const vp=page.getViewport({scale:renderScale});
+      const canvas=document.createElement('canvas');
+      canvas.width=vp.width;canvas.height=vp.height;
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      pageImgs.push({p,canvas});
+      setPip(p,'ok');
+    }
+
+    if(useVision){
+      // ── VISION PATH: scanned PDF — send every page to Gemini Vision ──
+      setP(38,'Sending pages to AI vision…');
+      let donePgs=0;
+      async function processPageVision(pg){
+        setPip(pg.p,'go');
+        try{
+          const b64=pg.canvas.toDataURL('image/jpeg',0.92).split(',')[1];
+          const r=await fetch(API+'/process-page',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({base64:b64,mimeType:'image/jpeg',pageNum:pg.p,totalPages:total})
+          });
+          if(!r.ok){const e=await r.json();throw new Error(e.error||'Server error');}
+          const result=await r.json();
+          if(result.transactions){
+            result.transactions.forEach(tx=>{
+              if(tx.type==='DEPOSIT')allData.deposits.push(tx);
+              else if(tx.type==='CHECK')allData.checks.push(tx);
+              else allData.debits.push(tx);
+            });
+          }
+          if(result.summary)Object.assign(allData.summary,result.summary);
+          if(result.check_images?.length){
+            result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
+          }
+          setPip(pg.p,'ok');
+        }catch(e){
+          setPip(pg.p,'er');
+          addBot(`<strong style="color:#e55">Page ${pg.p} failed:</strong> ${e.message}`,false);
+        }finally{
+          donePgs++;
+          setP(38+Math.round(donePgs/total*48),`AI vision: ${donePgs}/${total} pages…`);
         }
-        setPip(pg.p,'ok');
-      }catch(e){
-        console.warn(`Page ${pg.p}:`,e.message);
-        setPip(pg.p,'er');
-        addBot(`<strong style="color:#e55">Page ${pg.p} failed:</strong> ${e.message}`,false);
-      }finally{
-        donePages++;
-        setP(38+Math.round(donePages/pageImgs.length*46),`AI read ${donePages}/${total} pages…`);
+      }
+      for(let i=0;i<pageImgs.length;i+=CONCURRENCY){
+        await Promise.all(pageImgs.slice(i,i+CONCURRENCY).map(pg=>processPageVision(pg)));
+      }
+      const failed=pageImgs.filter(pg=>document.getElementById(`pip${pg.p}`)?.className.includes('er'));
+      if(failed.length===total){
+        addBot(`<strong style="color:#e55">⚠️ All pages failed.</strong> Check that your Gemini API key is valid and billing is enabled in Google Cloud Console.`,false);
+        hideTyping();setP(100,'Failed');
+        document.getElementById('progWrap').style.display='none';
+        document.getElementById('fpill').style.display='none';
+        upz.style.display='block';return;
+      }
+    } else {
+      // ── CHECK IMAGE SCAN: text extraction worked — only scan pages for check images ──
+      let donePgs=0;
+      async function scanForChecks(pg){
+        try{
+          const b64=pg.canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+          const r=await fetch(API+'/scan-check-images',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({base64:b64,mimeType:'image/jpeg',pageNum:pg.p})
+          });
+          if(r.ok){
+            const result=await r.json();
+            if(result.check_images?.length){
+              result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
+            }
+          }
+        }catch(e){}
+        donePgs++;
+        setP(55+Math.round(donePgs/total*30),`Check images: ${donePgs}/${total} pages scanned…`);
+      }
+      for(let i=0;i<pageImgs.length;i+=CONCURRENCY){
+        await Promise.all(pageImgs.slice(i,i+CONCURRENCY).map(pg=>scanForChecks(pg)));
       }
     }
 
-    // Process pages in parallel batches
-    for(let i=0;i<pageImgs.length;i+=CONCURRENCY){
-      await Promise.all(pageImgs.slice(i,i+CONCURRENCY).map(pg=>processPage(pg)));
-    }
-
-    // Assign stable IDs after all pages done (order preserved since arrays are built in arrival order)
+    // Assign stable IDs
     [...allData.deposits,...allData.debits,...allData.checks].forEach((tx,i)=>tx.id=`T${i+1}`);
-
-    // Warn if all pages failed
-    const failedPages=pageImgs.filter(pg=>document.getElementById(`pip${pg.p}`)?.className.includes('er'));
-    if(failedPages.length===pageImgs.length){
-      addBot(`<strong style="color:#e55">⚠️ All ${pageImgs.length} page(s) failed to process.</strong> This usually means <code>GEMINI_API_KEY</code> is not set in your Railway environment variables. Go to Railway → your project → Variables and add <code>GEMINI_API_KEY</code>.`,false);
-      hideTyping();
-      setP(100,'Failed — check API key');
-      document.getElementById('progWrap').style.display='none';
-      document.getElementById('fpill').style.display='none';
-      upz.style.display='block';
-      return;
-    } else if(failedPages.length>0){
-      addBot(`<strong style="color:#e8a000">⚠️ ${failedPages.length} page(s) failed</strong> (pages: ${failedPages.map(p=>p.p).join(', ')}). Results may be incomplete.`,false);
-    }
 
     // Categorize unmatched debits
     const unmatched=allData.debits.filter(t=>t.confidence==='LOW'||!t.account);

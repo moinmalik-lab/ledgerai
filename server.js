@@ -5,6 +5,7 @@ const fetch = require('node-fetch');
 const rateLimit = require('express-rate-limit');
 const cors = require('cors');
 const path = require('path');
+let pdfParse; try { pdfParse = require('pdf-parse'); } catch(e) { console.warn('pdf-parse not available'); }
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -282,6 +283,93 @@ app.get('/api/test-gemini', async (req, res) => {
     res.json({ ok: true, model: 'gemini-2.0-flash', response: text.trim() });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── FAST PDF TEXT EXTRACTION (primary path — 1 Gemini call for whole document) ──
+app.post('/api/process-pdf-text', async (req, res) => {
+  try {
+    if (!pdfParse) return res.status(501).json({ error: 'pdf-parse not installed' });
+    const { base64 } = req.body;
+    if (!base64) return res.status(400).json({ error: 'No PDF data provided' });
+
+    const buffer = Buffer.from(base64, 'base64');
+    const data = await pdfParse(buffer);
+    const text = (data.text || '').trim();
+
+    if (text.length < 100) return res.json({ scanned: true, transactions: [], summary: {} });
+
+    const prompt = `Extract ALL bank statement transactions from this PDF text. Return ONLY valid JSON:
+
+{
+  "transactions": [
+    {
+      "date": "MM/DD/YYYY",
+      "type": "DEPOSIT or DEBIT or CHECK",
+      "check_number": "1234 or null",
+      "description": "clean vendor name",
+      "raw_description": "exact text as printed",
+      "amount": 123.45
+    }
+  ],
+  "summary": {
+    "bank_name": "bank name or null",
+    "statement_period": "Month YYYY or null",
+    "opening_balance": 0.00,
+    "closing_balance": 0.00,
+    "total_deposits": 0.00,
+    "total_checks": 0.00,
+    "total_withdrawals": 0.00
+  }
+}
+
+RULES:
+- DEPOSIT = money IN (deposits, credits, ACH credits, insurance payments, wire in)
+- DEBIT = money OUT (withdrawals, purchases, ACH debits, bill pay, fees, wire out)
+- CHECK = paper check payments listed in a checks section
+- Amounts must be positive numbers — no dollar signs, no commas
+- Dates must be MM/DD/YYYY
+- Only include summary fields visible in the text
+- Return ONLY the JSON object, nothing else
+
+BANK STATEMENT TEXT:
+${text.slice(0, 30000)}`;
+
+    const raw = await callGemini([{ text: prompt }], 8000);
+    const result = parseJSON(raw);
+
+    if (result.transactions) {
+      result.transactions = result.transactions.map(tx => {
+        const match = matchVendor(tx.description || tx.raw_description);
+        if (match) { tx.account = match.vendor.account; tx.matched_vendor = match.vendor.name; tx.confidence = match.conf; }
+        else { tx.confidence = 'LOW'; }
+        return tx;
+      });
+    }
+    res.json({ ...result, scanned: false });
+  } catch (e) {
+    console.error('process-pdf-text error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── SCAN PAGE FOR CHECK IMAGES ONLY (used after text extraction succeeds) ──
+app.post('/api/scan-check-images', async (req, res) => {
+  try {
+    const { base64, mimeType, pageNum } = req.body;
+    if (!base64) return res.status(400).json({ check_images: [] });
+    const prompt = `Does this bank statement page contain any scanned paper check images (actual photos/scans of physical checks)?
+If YES, extract the details. If NO, return an empty array.
+Return ONLY valid JSON:
+{"check_images":[{"check_number":"1234","amount":123.45,"payee":"Pay to name","date":"MM/DD/YYYY","memo":"memo or null"}]}`;
+    const raw = await callGemini([
+      { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64 } },
+      { text: prompt }
+    ], 500);
+    const result = parseJSON(raw);
+    res.json({ check_images: result.check_images || [] });
+  } catch (e) {
+    res.json({ check_images: [] });
   }
 });
 
