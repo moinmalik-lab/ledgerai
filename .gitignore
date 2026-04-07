@@ -1,0 +1,4 @@
+node_modules/
+ledgerai.db
+.env
+dist/
