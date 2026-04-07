@@ -498,11 +498,11 @@ async function handleFile(file){
     setP(38,'Sending to server for AI reading…');
     const allData={deposits:[],debits:[],checks:[],chkImgs:[],summary:{}};
     let txId=1;
+    let donePages=0;
+    const CONCURRENCY=4;
 
-    for(let i=0;i<pageImgs.length;i++){
-      const pg=pageImgs[i];
+    async function processPage(pg){
       setPip(pg.p,'go');
-      setP(38+Math.round(i/pageImgs.length*46),`AI reading page ${pg.p}/${total}…`);
       try{
         const r=await fetch(API+'/process-page',{
           method:'POST',
@@ -513,7 +513,6 @@ async function handleFile(file){
         const result=await r.json();
         if(result.transactions){
           result.transactions.forEach(tx=>{
-            tx.id=`T${txId++}`;
             if(tx.type==='DEPOSIT')allData.deposits.push(tx);
             else if(tx.type==='CHECK')allData.checks.push(tx);
             else allData.debits.push(tx);
@@ -528,8 +527,19 @@ async function handleFile(file){
         console.warn(`Page ${pg.p}:`,e.message);
         setPip(pg.p,'er');
         addBot(`<strong style="color:#e55">Page ${pg.p} failed:</strong> ${e.message}`,false);
+      }finally{
+        donePages++;
+        setP(38+Math.round(donePages/pageImgs.length*46),`AI read ${donePages}/${total} pages…`);
       }
     }
+
+    // Process pages in parallel batches
+    for(let i=0;i<pageImgs.length;i+=CONCURRENCY){
+      await Promise.all(pageImgs.slice(i,i+CONCURRENCY).map(pg=>processPage(pg)));
+    }
+
+    // Assign stable IDs after all pages done (order preserved since arrays are built in arrival order)
+    [...allData.deposits,...allData.debits,...allData.checks].forEach((tx,i)=>tx.id=`T${i+1}`);
 
     // Warn if all pages failed
     const failedPages=pageImgs.filter(pg=>document.getElementById(`pip${pg.p}`)?.className.includes('er'));
