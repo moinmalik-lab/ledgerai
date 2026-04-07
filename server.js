@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = GEMINI_KEY
-  ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`
+  ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`
   : null;
 
 // ── TRUST PROXY — required for Railway, fixes rate-limit error ──
@@ -272,6 +272,17 @@ ${trnLines}
 // ── HEALTH ──
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'LedgerAI server running', gemini: !!GEMINI_KEY });
+});
+
+// ── TEST GEMINI CONNECTION ──
+app.get('/api/test-gemini', async (req, res) => {
+  if (!GEMINI_KEY) return res.status(400).json({ ok: false, error: 'GEMINI_API_KEY is not set' });
+  try {
+    const text = await callGemini([{ text: 'Reply with the single word: OK' }], 10);
+    res.json({ ok: true, model: 'gemini-2.0-flash', response: text.trim() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // ── PROCESS PAGE (vision) ──

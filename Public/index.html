@@ -447,9 +447,33 @@ async function handleFile(file){
   document.getElementById('fpill').style.display='block';
   upz.style.display='none';
   document.getElementById('progWrap').style.display='block';
-  setP(0,'Loading PDF…');
-  addBot(`<strong>📄 ${file.name}</strong> — rendering pages for vision reading…`,false);
+  setP(0,'Testing AI connection…');
+  addBot(`<strong>📄 ${file.name}</strong> — checking AI connection…`,false);
   showTyping();
+
+  // Verify Gemini works before processing the whole PDF
+  try{
+    const tr=await fetch(API+'/test-gemini');
+    const td=await tr.json();
+    if(!td.ok){
+      hideTyping();
+      addBot(`<strong style="color:#e55">❌ Gemini API error:</strong> <code>${td.error}</code><br><br>Common causes:<ul style="margin:6px 0 0 16px;font-size:12px"><li>API key is invalid or not enabled for Gemini</li><li>Billing not set up in Google Cloud Console</li><li>Model quota exceeded — try again later</li></ul>`,false);
+      document.getElementById('progWrap').style.display='none';
+      document.getElementById('fpill').style.display='none';
+      upz.style.display='block';
+      return;
+    }
+    addBot(`AI connection verified (${td.model}) — reading PDF…`,false);
+  }catch(connErr){
+    hideTyping();
+    addBot(`<strong style="color:#e55">❌ Could not reach AI server:</strong> ${connErr.message}`,false);
+    document.getElementById('progWrap').style.display='none';
+    document.getElementById('fpill').style.display='none';
+    upz.style.display='block';
+    return;
+  }
+
+  setP(2,'Loading PDF…');
   try{
     const ab=await file.arrayBuffer();
     const pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
@@ -500,7 +524,11 @@ async function handleFile(file){
           result.check_images.forEach(ci=>{ci.src=pg.canvas.toDataURL('image/jpeg',0.88);ci.pageNum=pg.p;allData.chkImgs.push(ci);});
         }
         setPip(pg.p,'ok');
-      }catch(e){console.warn(`Page ${pg.p}:`,e.message);setPip(pg.p,'er');}
+      }catch(e){
+        console.warn(`Page ${pg.p}:`,e.message);
+        setPip(pg.p,'er');
+        addBot(`<strong style="color:#e55">Page ${pg.p} failed:</strong> ${e.message}`,false);
+      }
     }
 
     // Warn if all pages failed
