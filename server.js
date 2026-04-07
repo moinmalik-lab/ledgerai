@@ -9,7 +9,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_URL = GEMINI_KEY
+  ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`
+  : null;
 
 // ── TRUST PROXY — required for Railway, fixes rate-limit error ──
 app.set('trust proxy', 1);
@@ -17,7 +19,7 @@ app.set('trust proxy', 1);
 // ── MIDDLEWARE ──
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'Public')));
 
 // ── RATE LIMITING ──
 const limiter = rateLimit({
@@ -489,8 +491,8 @@ app.get('/api/statements/:id/export/qbo', (req, res) => {
     const stmt = db.prepare('SELECT * FROM statements WHERE id=?').get(req.params.id);
     if (!txs.length) return res.status(404).json({ error: 'No transactions found' });
     const dates  = txs.map(t=>t.tx_date).filter(Boolean).sort();
-    const dtStart = toOFXDate(dates[0]);
-    const dtEnd   = toOFXDate(dates[dates.length-1]);
+    const dtStart = dates.length ? toOFXDate(dates[0]) : toOFXDate(null);
+    const dtEnd   = dates.length ? toOFXDate(dates[dates.length-1]) : toOFXDate(null);
     const bankId  = (stmt?.bank_name||'LEDGERAI').replace(/\s/g,'').toUpperCase().slice(0,9);
     const acctId  = stmt?.filename?.match(/\d{6,}/)?.[0] || 'CHECKING001';
     const qbo = buildQBO(txs, bankId, acctId, stmt?.closing_balance||0, dtStart, dtEnd);
@@ -542,6 +544,7 @@ app.post('/api/vendors', (req, res) => {
 app.put('/api/vendors/:id', (req, res) => {
   try {
     const { name, account, aliases, tag } = req.body;
+    if (!name||!account) return res.status(400).json({ error: 'Name and account required' });
     db.prepare('UPDATE vendors SET name=?,account=?,aliases=?,tag=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(name, account, JSON.stringify(aliases||[]), tag||'', req.params.id);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -563,7 +566,7 @@ app.post('/api/vendors/import', (req, res) => {
 
 // ── SERVE FRONTEND — catch-all must be LAST ──
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, 'Public', 'index.html'));
 });
 
 app.listen(PORT, () => {
